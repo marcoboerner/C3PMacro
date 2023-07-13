@@ -25,9 +25,45 @@ public struct StringifyMacro: ExpressionMacro {
     }
 }
 
+public struct SlopeSubsetMacro: MemberMacro {
+    public static func expansion(
+        of node: AttributeSyntax,
+        providingMembersOf declaration: some DeclGroupSyntax,
+        in context: some MacroExpansionContext
+    ) throws -> [DeclSyntax] {
+        // checks if the declaration is of type enum declaration, meaning the macro needs to be attached to a type that is an enum
+        guard let enumDecl = declaration.as(EnumDeclSyntax.self) else {
+            fatalError()
+        }
+
+        let identifier = enumDecl.identifier
+        let identifierLowercased = identifier.text.dropLast(identifier.text.count - 1).lowercased() + identifier.text.dropFirst()
+        let members = enumDecl.memberBlock.members
+        let caseDecls = members.compactMap { $0.decl.as(EnumCaseDeclSyntax.self) }
+        let elements = caseDecls.flatMap { $0.elements }
+
+        let initializer = try InitializerDeclSyntax("init?(_ \(raw: identifierLowercased): \(identifier))") {
+            try SwitchExprSyntax("switch \(raw: identifierLowercased)") {
+                for element in elements {
+                    SwitchCaseSyntax(
+                        """
+                        case .\(element.identifier):
+                            self = .\(element.identifier)
+                        """
+                        )
+                }
+                SwitchCaseSyntax("default: return nil")
+            }
+        }
+
+        return [DeclSyntax(initializer)]
+    }
+}
+
 @main
 struct C3PMacroPlugin: CompilerPlugin {
     let providingMacros: [Macro.Type] = [
         StringifyMacro.self,
+        SlopeSubsetMacro.self
     ]
 }
